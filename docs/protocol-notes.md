@@ -92,6 +92,53 @@ half-close.
 Nothing about ANC, Aware, EQ or any other feature. A channel accepting a
 connection says nothing about what travels over it.
 
+## Experiment 2 — listen-only RFCOMM, no half-close
+
+**2026-08-08T12:07:41Z. Zero bytes transmitted.**
+
+| | |
+| --- | --- |
+| Service | `{9B26D8C0-A8ED-440B-95B0-C4714A518BCC}` |
+| Connect | Succeeded |
+| Channel lifetime | **192 seconds**, closed by the operator |
+| Frames received | **0** |
+| Actions marked | 16 |
+
+Marked actions, all performed physically on the headphones while connected:
+ANC Quiet ×2, ANC Aware ×2, ANC Custom ×2, Volume Up ×2, Volume Down ×4,
+Play ×2, Pause ×2.
+
+### Two findings
+
+**1. Experiment 1's 16 ms close was our fault, now confirmed.**
+Removing `shutdown(SD_SEND)` changed the channel lifetime from 16 ms to
+192 seconds with no other change. The device is content to hold an idle
+channel open indefinitely; it was the end-of-stream announcement it objected
+to. The Experiment 1 confound is settled.
+
+**2. The channel is strictly request/response.**
+Across 192 seconds the device sent **nothing** — not a heartbeat, not a
+greeting, and critically not a state notification when the noise-control mode
+was physically changed six times. A device that pushed state changes would
+have emitted something at 23954 ms, 35692 ms, 51913 ms, 64574 ms, 71041 ms or
+77216 ms. Nothing arrived.
+
+### What this means for the project
+
+**Passive observation of this channel is exhausted.** There is no further
+information to be gained by listening, because the device does not speak
+unless spoken to. This is a genuine negative result, not a failed capture.
+
+Every vendor-protocol capability therefore remains **UNKNOWN**. Specifically,
+none of the following changed status as a result of these experiments:
+noise control, Aware mode, custom noise control, equalizer, multipoint,
+firmware version, auto-off, voice prompts, sidetone, device rename.
+
+Reaching them would require transmitting a frame the device recognises. That
+is a write to physical hardware and a separate decision, which has not been
+taken. No frame format is known, and none will be guessed — see the stop
+condition at the end of this document.
+
 ## Nothing below here is a finding
 
 This document records what was reasoned about, so the eventual hardware session
