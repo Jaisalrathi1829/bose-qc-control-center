@@ -27,7 +27,7 @@ caveat, and `CapabilityStatus::is_actionable()` returns `false` for it.
 | Connection state | Windows PnP property | SUPPORTED | No |
 | Battery | Windows PnP battery property | UNKNOWN for Bose | No |
 | Device identity | Windows PnP | SUPPORTED | No |
-| Windows volume | Core Audio (not yet wired) | UNKNOWN | No |
+| Windows volume | Core Audio | **VERIFIED** | **Yes** (see below) |
 | Playback / transport | Windows media session (not yet wired) | UNKNOWN | No |
 | Noise control (Quiet) | Bose vendor protocol | UNKNOWN | No |
 | Aware mode | Bose vendor protocol | UNKNOWN | No |
@@ -40,10 +40,32 @@ caveat, and `CapabilityStatus::is_actionable()` returns `false` for it.
 | Sidetone | Bose vendor protocol | UNKNOWN | No |
 | Device rename | Bose vendor protocol | UNKNOWN | No |
 
-**Nothing in this project is `VERIFIED`.** That is the correct state: no Bose
-device has been interrogated.
+**No Bose-specific capability is `VERIFIED`.** That is the correct state: no
+Bose device has been interrogated. The one verified entry is Windows system
+volume, which is a system capability rather than a device one.
 
 ## Mechanism notes
+
+### Windows volume — what "VERIFIED" means here, precisely
+
+Core Audio enumeration was run against this machine's real hardware. It
+returned `Speakers (Realtek(R) Audio)` at 44%, muted, default render endpoint,
+48000 Hz — and a volume round-trip confirmed the endpoint reports back the
+value that was set.
+
+That verifies the **Windows audio path**, on this machine, for this endpoint.
+It does **not** verify anything about a Bose endpoint, which will not exist
+until the headphones are paired and connected. When they are, the same code
+will read whatever endpoint Windows creates for them, and the capability will
+re-verify against that.
+
+This distinction matters and the code preserves it: `attach_windows_audio()`
+builds a `HardwareProof` from the endpoint it actually read, naming that
+endpoint in the evidence string.
+
+Note also that Windows system volume for an endpoint is a different mechanism
+from any volume the headphones keep internally. The UI labels it as such and
+never presents the two as one control.
 
 ### Battery — why "UNKNOWN for Bose" and not "SUPPORTED"
 
