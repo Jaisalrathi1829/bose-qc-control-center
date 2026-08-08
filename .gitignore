@@ -26,6 +26,9 @@ captures/
 reports/
 device-report.json
 device-report.txt
+rfcomm-capture.json
+rfcomm-capture.jsonl
+rfcomm-capture.txt
 *.btcapture
 *.btcapture.jsonl
 
