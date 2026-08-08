@@ -11,7 +11,7 @@ import {
   MinusCircle,
   Zap,
 } from "lucide-react";
-import { motion, useMotionValue, useSpring } from "motion/react";
+import { motion, useMotionValue, useSpring, useTransform } from "motion/react";
 import { cn } from "./ui/utils";
 import { capabilityMeta, type Capability, type ConnectionState } from "../store";
 
@@ -175,28 +175,11 @@ export function BatteryIndicator({
   showLabel = true,
   size = "sm",
 }: {
-  /** `null` means the device has not reported a level — not zero. */
-  level: number | null;
+  level: number;
   charging?: boolean;
   showLabel?: boolean;
   size?: "sm" | "lg";
 }) {
-  // A missing reading is rendered as missing. Showing 0% would be a factual
-  // claim about the battery that we have no basis for.
-  if (level === null) {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 text-muted-foreground"
-        title="This device has not reported a battery level to Windows."
-      >
-        <BatteryWarning className={size === "lg" ? "size-5" : "size-4"} />
-        {showLabel && (
-          <span className={size === "lg" ? "text-base" : "text-sm"}>No reading</span>
-        )}
-      </span>
-    );
-  }
-
   const tone = level <= 10 ? "error" : level <= 20 ? "warning" : "success";
   const colorClass =
     tone === "error" ? "text-error" : tone === "warning" ? "text-warning" : "text-success";
@@ -230,12 +213,7 @@ export function SegmentedControl<T extends string>({
   className,
 }: {
   options: { value: T; label: string; icon?: ReactNode }[];
-  /**
-   * `null` means the device has not told us which option is active, so none
-   * is shown as selected. Defaulting to the first option would assert a
-   * device state we have not observed.
-   */
-  value: T | null;
+  value: T;
   onChange: (v: T) => void;
   disabled?: boolean;
   className?: string;
@@ -302,7 +280,6 @@ export function Range({
   displayValue,
   leftLabel,
   rightLabel,
-  continuous = false,
 }: {
   label?: string;
   value: number;
@@ -315,41 +292,15 @@ export function Range({
   displayValue?: string;
   leftLabel?: string;
   rightLabel?: string;
-  /**
-   * Fire `onChange` on every intermediate value instead of on release.
-   *
-   * Off by default. These sliders are bound to hardware commands, and the
-   * upstream behaviour issued one command per input event — dragging the
-   * volume slider across its range produced a burst of IPC calls and a wall
-   * of log entries, each racing the others' state read-back. The slider now
-   * tracks the drag locally and commits once, when the user lets go.
-   */
-  continuous?: boolean;
 }) {
-  const [draft, setDraft] = useState(value);
-  const [dragging, setDragging] = useState(false);
-
-  // The device remains the source of truth: whenever it reports a new value
-  // and the user is not mid-drag, the slider snaps to what the device says.
-  useEffect(() => {
-    if (!dragging) setDraft(value);
-  }, [value, dragging]);
-
-  const shown = dragging ? draft : value;
-
-  const commit = (v: number) => {
-    setDragging(false);
-    if (v !== value) onChange(v);
-  };
-
-  const pct = ((shown - min) / (max - min)) * 100;
+  const pct = ((value - min) / (max - min)) * 100;
   return (
     <div className={cn("w-full", disabled && "opacity-50")}>
       {label && (
         <div className="mb-2 flex items-center justify-between">
           <span className="text-sm text-foreground">{label}</span>
           <span className="text-sm tabular-nums text-muted-foreground">
-            {dragging ? `${draft}${suffix ?? ""}` : (displayValue ?? `${value}${suffix ?? ""}`)}
+            {displayValue ?? `${value}${suffix ?? ""}`}
           </span>
         </div>
       )}
@@ -373,20 +324,9 @@ export function Range({
             min={min}
             max={max}
             step={step}
-            value={shown}
+            value={value}
             disabled={disabled}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              if (continuous) {
-                onChange(v);
-                return;
-              }
-              setDragging(true);
-              setDraft(v);
-            }}
-            onPointerUp={(e) => !continuous && commit(Number((e.target as HTMLInputElement).value))}
-            onKeyUp={(e) => !continuous && commit(Number((e.target as HTMLInputElement).value))}
-            onBlur={(e) => !continuous && dragging && commit(Number(e.target.value))}
+            onChange={(e) => onChange(Number(e.target.value))}
             className="absolute inset-0 top-1/2 h-4 w-full -translate-y-1/2 cursor-pointer appearance-none bg-transparent outline-none disabled:cursor-not-allowed
               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-primary [&::-webkit-slider-thumb]:bg-card [&::-webkit-slider-thumb]:shadow-[var(--shadow-sm)] [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:hover:scale-110
               [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-primary [&::-moz-range-thumb]:bg-card"

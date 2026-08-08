@@ -255,6 +255,35 @@ async fn execute_command(
     Ok(outcome)
 }
 
+/// Opens the Windows Bluetooth settings page.
+///
+/// The target URI is fixed in native code and takes no parameter, so the
+/// frontend cannot use this to open an arbitrary URL or launch a program.
+/// That is why this exists as a dedicated command rather than granting the
+/// opener plugin's general `open-url` permission to the UI.
+#[tauri::command]
+fn open_bluetooth_settings(app: tauri::AppHandle) -> UiResult<()> {
+    #[cfg(windows)]
+    {
+        use tauri_plugin_opener::OpenerExt;
+        app.opener()
+            .open_url("ms-settings:bluetooth", None::<&str>)
+            .map_err(|e| UiError {
+                message: format!("Could not open Windows Bluetooth settings: {e}"),
+                kind: "platform".to_string(),
+            })?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err(UiError {
+            message: "Bluetooth settings are only available on Windows.".to_string(),
+            kind: "unsupported".to_string(),
+        })
+    }
+}
+
 #[tauri::command]
 fn get_bluetooth_availability() -> bluetooth::BluetoothAvailability {
     #[cfg(windows)]
@@ -320,6 +349,7 @@ pub fn run() {
             get_bluetooth_availability,
             list_bluetooth_devices,
             list_audio_endpoints,
+            open_bluetooth_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Bose QC Control Center");

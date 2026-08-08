@@ -18,11 +18,10 @@ import { SettingsPage } from "./components/pages/SettingsPage";
 function Content({ page, onNavigate }: { page: PageId; onNavigate: (p: PageId) => void }) {
   const { connection } = useApp();
 
-  // Device and Settings stay reachable while disconnected — Device is where
-  // you reconnect from, and Settings is where you switch device source, so
-  // gating either behind a connection would strand the user.
-  const online = connection === "connected";
-  const alwaysAvailable = page === "settings" || page === "device";
+  // Device page and Settings are always available. Other feature pages
+  // require an active (or simulated) connection.
+  const online = connection === "connected" || connection === "simulated";
+  const alwaysAvailable = page === "settings";
 
   if (!online && !alwaysAvailable) {
     return <ConnectionScreen state={connection} />;
@@ -41,7 +40,7 @@ function Content({ page, onNavigate }: { page: PageId; onNavigate: (p: PageId) =
 
 function Shell() {
   const [page, setPage] = useState<PageId>("dashboard");
-  const { connection, simulated } = useApp();
+  const { connection } = useApp();
 
   return (
     <div className="relative flex h-screen w-full overflow-hidden bg-background text-foreground">
@@ -63,10 +62,7 @@ function Shell() {
       <Sidebar page={page} onNavigate={setPage} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar page={page} />
-        {/* Keyed off the device source, not the connection state: a simulated
-            device can be connected, disconnected or reconnecting, and the
-            warning must be visible in all of those cases. */}
-        {simulated && <SimulatedBanner />}
+        {connection === "simulated" && <SimulatedBanner />}
         <main className="flex-1 overflow-auto">
           <AnimatePresence mode="wait">
             <motion.div

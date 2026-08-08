@@ -109,6 +109,22 @@ export async function listBluetoothDevices(): Promise<DiscoveredDevice[]> {
   return invokeNative<DiscoveredDevice[]>('list_bluetooth_devices');
 }
 
+/**
+ * Opens the Windows Bluetooth settings page.
+ *
+ * The URI lives in native code and this call takes no argument, so the UI
+ * cannot use it to open anything else.
+ */
+export async function openBluetoothSettings(): Promise<void> {
+  if (!hasNativeLayer()) {
+    throw {
+      kind: 'unsupported',
+      message: 'Windows settings can only be opened from the desktop application.',
+    } satisfies IpcError;
+  }
+  return invokeNative<void>('open_bluetooth_settings');
+}
+
 /** Normalises anything thrown by the IPC layer into a displayable error. */
 export function toIpcError(e: unknown): IpcError {
   if (e && typeof e === 'object' && 'message' in e && 'kind' in e) {
