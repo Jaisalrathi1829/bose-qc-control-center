@@ -47,12 +47,50 @@ frame format, no opcode, no command has been observed, because nothing was
 sent. Noise control and EQ remain `UNKNOWN`, not `SUPPORTED` — the presence of
 a channel is not evidence of what travels over it.
 
-### Why the vendor channel has not been opened
+## Experiment 1 — listen-only RFCOMM, half-closed transmit
 
-The agreed posture for this project is read-only and passive. Opening the
-RFCOMM channel is a write in practice: it claims the channel, and can prevent
-Bose Music from connecting while held. Doing so needs an explicit decision,
-which has not been taken.
+**2026-08-08T11:55:48Z. Zero bytes transmitted.**
+
+| | |
+| --- | --- |
+| Service | `{9B26D8C0-A8ED-440B-95B0-C4714A518BCC}` |
+| Connect | **Succeeded** |
+| Frames received | **0** |
+| Channel lifetime | **16 ms**, closed by the device |
+
+### What this establishes
+
+The vendor RFCOMM service is real, is advertised over SDP, and **accepts
+inbound connections**. Windows resolved the channel number itself and the
+connect completed. That is now confirmed rather than inferred.
+
+### What it does not establish, and why
+
+The 16 ms close is **confounded by the tool's own behaviour** and must not be
+read as device policy.
+
+The first build called `shutdown(SD_SEND)` immediately after connecting, as an
+extra OS-level guarantee against transmitting. That call announces to the peer
+that this side will never send anything. A device speaking a request/response
+protocol has no reason to hold a channel open for a peer that has declared it
+will never ask a question — so hanging up is the reasonable thing for it to do.
+
+In other words the experiment measured our own end-of-stream signal, not the
+headphones' behaviour toward a silent-but-open peer. 16 ms is far too fast to
+be an idle timeout, which supports this reading.
+
+`shutdown(SD_SEND)` is now opt-in (`--half-close`) and off by default. The
+no-write guarantee is unaffected: transmitting requires a `send` call, and no
+such symbol is imported anywhere in the crate.
+
+### Not yet established
+
+Whether the device volunteers anything to a silent peer that has *not*
+announced end-of-stream. Experiment 2 repeats the capture without the
+half-close.
+
+Nothing about ANC, Aware, EQ or any other feature. A channel accepting a
+connection says nothing about what travels over it.
 
 ## Nothing below here is a finding
 

@@ -12,9 +12,21 @@
 //! `connect` performs the RFCOMM channel establishment handshake, which is
 //! link-layer protocol, not application data. Zero application bytes are sent.
 //!
-//! `shutdown(SD_SEND)` is called immediately after connecting, which asks
-//! Windows to close our transmit direction outright — after that the OS itself
-//! would reject a send even if one were somehow attempted.
+//! # A note on `shutdown(SD_SEND)`
+//!
+//! Half-closing the transmit direction is available via [`OpenOptions`], and
+//! adds OS-level enforcement on top of the structural guarantee above. It is
+//! **off by default**, because it was measured to break the capture: the test
+//! headphones closed the channel 16ms after connect when it was applied.
+//!
+//! That is the expected consequence, in hindsight. `shutdown(SD_SEND)` signals
+//! to the peer that we will never transmit. A device speaking a
+//! request/response protocol has no reason to hold a channel open for a peer
+//! that has announced it will never ask anything, so it hangs up. The
+//! half-close was measuring our own signal, not the device's behaviour.
+//!
+//! With it off, the no-write guarantee still holds — transmitting requires a
+//! `send` call, and no such symbol exists in this crate.
 
 #![cfg(windows)]
 
@@ -80,18 +92,32 @@ pub enum RecvOutcome {
     Closed,
 }
 
+/// How to open the channel.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OpenOptions {
+    /// Call `shutdown(SD_SEND)` after connecting.
+    ///
+    /// Adds OS-level enforcement of the no-write guarantee, at the cost of
+    /// telling the device we will never speak — which makes a request/response
+    /// peer hang up immediately. Off by default; see the module docs.
+    pub half_close_transmit: bool,
+}
+
 /// A connected, receive-only RFCOMM channel.
 pub struct ListenOnlyChannel {
     socket: SOCKET,
 }
 
 impl ListenOnlyChannel {
-    /// Opens the given service on the given device address, then immediately
-    /// shuts down the transmit direction.
+    /// Opens the given service on the given device address.
     ///
     /// `service` is resolved through SDP by Windows, so the RFCOMM channel
     /// number does not need to be known in advance.
-    pub fn open(device_address: u64, service: GUID) -> Result<Self, RfcommError> {
+    pub fn open(
+        device_address: u64,
+        service: GUID,
+        options: OpenOptions,
+    ) -> Result<Self, RfcommError> {
         unsafe {
             let mut wsadata = WSADATA::default();
             let rc = WSAStartup(0x0202, &mut wsadata);
@@ -129,10 +155,12 @@ impl ListenOnlyChannel {
                 return Err(RfcommError::Connect(e));
             }
 
-            // Close our transmit direction. From here the OS will not let this
-            // socket send, which makes the no-write guarantee enforced by
-            // Windows and not merely by this code's structure.
-            let _ = shutdown(s, SD_SEND);
+            if options.half_close_transmit {
+                // Opt-in only. Measured to cause the test headphones to close
+                // the channel after 16ms, because it announces that we will
+                // never transmit.
+                let _ = shutdown(s, SD_SEND);
+            }
 
             Ok(Self { socket: s })
         }

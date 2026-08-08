@@ -1,0 +1,31 @@
+BOSE RFCOMM LISTEN-ONLY CAPTURE
+===============================
+
+Device       : Aurora
+Service      : {9B26D8C0-A8ED-440B-95B0-C4714A518BCC}
+Generated    : 2026-08-08T11:56:06.6041491Z
+Posture      : LISTEN-ONLY — 0 bytes transmitted
+Frames       : 0
+Markers      : 0
+
+TIMELINE
+--------
+        0ms  NOTE  Channel opened to Aurora on {9B26D8C0-A8ED-440B-95B0-C4714A518BCC}. Zero bytes sent.
+       16ms  NOTE  Device closed the RFCOMM channel.
+
+FRAME PATTERNS
+--------------
+  No frames were received. The device volunteered nothing.
+
+INTERPRETATION
+--------------
+None. This report records temporal correlation only.
+
+A frame arriving after an action is not proof that the frame encodes
+that action, that the field which changed is the mode, or that the
+device would accept the same bytes as a command. Establishing any of
+that requires further observation, and writing to the device is a
+separate decision that has not been taken.
+
+Capability statuses must NOT be changed on the strength of this file
+alone.

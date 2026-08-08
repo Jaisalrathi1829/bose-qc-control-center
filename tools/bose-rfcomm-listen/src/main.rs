@@ -65,6 +65,7 @@ fn run() {
         .and_then(|i| args.get(i + 1))
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_MAX_SECONDS);
+    let half_close = args.iter().any(|a| a == "--half-close");
 
     println!("Bose QC Control Center — RFCOMM listen-only capture");
     println!("====================================================\n");
@@ -95,7 +96,10 @@ fn run() {
     print!("Opening the vendor RFCOMM channel... ");
     let _ = std::io::stdout().flush();
 
-    let channel = match rfcomm::ListenOnlyChannel::open(address, VENDOR_RFCOMM_UUID) {
+    let options = rfcomm::OpenOptions {
+        half_close_transmit: half_close,
+    };
+    let channel = match rfcomm::ListenOnlyChannel::open(address, VENDOR_RFCOMM_UUID, options) {
         Ok(c) => {
             println!("connected.\n");
             c
@@ -152,11 +156,19 @@ fn run() {
                 }
                 Ok(rfcomm::RecvOutcome::Idle) => {}
                 Ok(rfcomm::RecvOutcome::Closed) => {
-                    println!("\n[device closed the channel]");
+                    let at_ms = started.elapsed().as_millis();
+                    println!("\n[device closed the channel after {at_ms}ms]");
+                    if at_ms < 2000 {
+                        println!(
+                            "\n  The device hung up almost immediately and sent nothing.\n  \
+                             This channel does not volunteer data to a silent peer.\n  \
+                             Press Enter to exit — marking actions now will record nothing."
+                        );
+                    }
                     rx_events.lock().unwrap().push(Event::Note {
-                        at_ms: started.elapsed().as_millis(),
+                        at_ms,
                         timestamp: now_rfc3339(),
-                        text: "Device closed the RFCOMM channel.".to_string(),
+                        text: format!("Device closed the RFCOMM channel after {at_ms}ms."),
                     });
                     rx_stop.store(true, Ordering::Relaxed);
                     break;
@@ -351,7 +363,10 @@ fn print_help() {
          volunteers. Transmits nothing.\n\n\
          Options:\n  \
          -h, --help          Show this help\n  \
-         --seconds <n>       Maximum capture length (default {DEFAULT_MAX_SECONDS})\n\n\
+         --seconds <n>       Maximum capture length (default {DEFAULT_MAX_SECONDS})\n  \
+         --half-close        Also shut down the transmit direction at the OS level.\n                      \
+         Stricter, but announces to the device that we will never\n                      \
+         speak, which makes it hang up immediately. Off by default.\n\n\
          Writes rfcomm-capture.jsonl and rfcomm-capture.txt to the working directory."
     );
 }
