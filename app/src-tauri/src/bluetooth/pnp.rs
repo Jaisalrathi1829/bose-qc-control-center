@@ -95,6 +95,66 @@ pub struct PnpDevice {
     pub friendly_name: Option<String>,
     pub is_connected: Option<bool>,
     pub battery_percent: Option<u8>,
+    /// Bluetooth SIG company identifier from the instance id, when present.
+    /// `0x009E` is Bose Corporation.
+    pub vendor_id: Option<u16>,
+}
+
+/// The 48-bit Bluetooth device address embedded in a PnP instance id.
+///
+/// Windows writes it as a bare 12-hex-digit run, in several different
+/// positions depending on the node kind:
+///
+/// ```text
+/// BTHENUM\DEV_E458BCF9F02E\7&78167D1&0&BLUETOOTHDEVICE_E458BCF9F02E
+/// BTHENUM\{0000111E-...}_VID&0001009E_PID&4075\7&78167D1&0&E458BCF9F02E_C00000000
+/// ```
+///
+/// The address is found by taking the **last** maximal 12-character hex run.
+///
+/// Taking the first run is wrong: service UUIDs contain one too. The Bluetooth
+/// SIG base UUID ends `-00805F9B34FB`, and the vendor RFCOMM UUID observed on
+/// the test headphones ends `-C4714A518BCC` — both are 12 hex characters and
+/// both appear before the address. The address is always last.
+pub fn device_address(instance_id: &str) -> Option<String> {
+    let upper = instance_id.to_uppercase();
+    let chars: Vec<char> = upper.chars().collect();
+    let mut found: Option<String> = None;
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i].is_ascii_hexdigit() {
+            let start = i;
+            while i < chars.len() && chars[i].is_ascii_hexdigit() {
+                i += 1;
+            }
+            if i - start == 12 {
+                found = Some(chars[start..i].iter().collect());
+            }
+        } else {
+            i += 1;
+        }
+    }
+    found
+}
+
+/// Parses the Bluetooth SIG company identifier out of a `VID&AAAABBBB` field.
+///
+/// `AAAA` is the identifier namespace (`0001` = Bluetooth SIG, `0002` = USB-IF)
+/// and `BBBB` is the vendor id. Only SIG-assigned ids are returned, because a
+/// USB vendor id means something different and must not be compared against
+/// the SIG company list.
+pub fn vendor_id(instance_id: &str) -> Option<u16> {
+    let upper = instance_id.to_uppercase();
+    let idx = upper.find("VID&")? + 4;
+    let field: String = upper[idx..].chars().take(8).collect();
+    if field.len() != 8 || !field.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let namespace = u16::from_str_radix(&field[..4], 16).ok()?;
+    if namespace != 1 {
+        return None;
+    }
+    u16::from_str_radix(&field[4..], 16).ok()
 }
 
 impl PnpDevice {
@@ -221,11 +281,26 @@ pub fn enumerate_instance_ids(filter: &str) -> Vec<String> {
 const CM_GETIDLIST_FILTER_ENUMERATOR: u32 = 0x00000001;
 
 /// Enumerates Bluetooth devices (Classic and LE) with their readable properties.
+///
+/// Returns one entry per physical device. Windows creates a child node per
+/// Bluetooth profile, and properties are scattered across them rather than
+/// collected on the parent — a pair of headphones observed during development
+/// reported its battery only on the Hands-Free (HFP) child node, while the
+/// top-level node reported none at all. Reading only top-level nodes therefore
+/// misses battery entirely. Properties are gathered across every node sharing
+/// a device address and attached to that device's top-level entry.
 pub fn enumerate_bluetooth_devices() -> Vec<PnpDevice> {
-    let mut out = Vec::new();
-    let mut seen = BTreeMap::new();
+    struct Node {
+        instance_id: String,
+        friendly_name: Option<String>,
+        is_connected: Option<bool>,
+        battery_percent: Option<u8>,
+        vendor_id: Option<u16>,
+    }
 
-    for enumerator in ["BTHENUM", "BTHLE"] {
+    let mut nodes: Vec<Node> = Vec::new();
+
+    for enumerator in ["BTHENUM", "BTHLE", "BTHLEDEVICE"] {
         for instance_id in enumerate_instance_ids(enumerator) {
             let friendly_name = get_property(&instance_id, &DEVPKEY_DEVICE_FRIENDLY_NAME)
                 .and_then(|v| v.as_text().map(str::to_string))
@@ -234,24 +309,67 @@ pub fn enumerate_bluetooth_devices() -> Vec<PnpDevice> {
                         .and_then(|v| v.as_text().map(str::to_string))
                 });
 
-            let is_connected =
-                get_property(&instance_id, &DEVPKEY_DEVICE_IS_CONNECTED).and_then(|v| v.as_bool());
-
-            let battery_percent =
-                get_property(&instance_id, &DEVPKEY_BLUETOOTH_BATTERY).and_then(|v| v.as_percent());
-
-            let dev = PnpDevice {
-                instance_id: instance_id.clone(),
+            nodes.push(Node {
+                is_connected: get_property(&instance_id, &DEVPKEY_DEVICE_IS_CONNECTED)
+                    .and_then(|v| v.as_bool()),
+                battery_percent: get_property(&instance_id, &DEVPKEY_BLUETOOTH_BATTERY)
+                    .and_then(|v| v.as_percent()),
+                vendor_id: vendor_id(&instance_id),
                 friendly_name,
-                is_connected,
-                battery_percent,
-            };
-            seen.insert(instance_id, dev);
+                instance_id,
+            });
         }
     }
 
-    out.extend(seen.into_values());
-    out
+    // Fold each device address into a single set of best-known values.
+    let mut battery_by_address: BTreeMap<String, u8> = BTreeMap::new();
+    let mut vendor_by_address: BTreeMap<String, u16> = BTreeMap::new();
+    let mut connected_by_address: BTreeMap<String, bool> = BTreeMap::new();
+
+    for n in &nodes {
+        let Some(addr) = device_address(&n.instance_id) else {
+            continue;
+        };
+        if let Some(b) = n.battery_percent {
+            battery_by_address.entry(addr.clone()).or_insert(b);
+        }
+        if let Some(v) = n.vendor_id {
+            vendor_by_address.entry(addr.clone()).or_insert(v);
+        }
+        // Any node reporting connected means the device is connected.
+        if n.is_connected == Some(true) {
+            connected_by_address.insert(addr, true);
+        }
+    }
+
+    let mut out: BTreeMap<String, PnpDevice> = BTreeMap::new();
+    for n in nodes {
+        let dev = PnpDevice {
+            friendly_name: n.friendly_name,
+            is_connected: n.is_connected,
+            battery_percent: n.battery_percent,
+            vendor_id: n.vendor_id,
+            instance_id: n.instance_id,
+        };
+        if !dev.is_top_level() {
+            continue;
+        }
+        let enriched = match device_address(&dev.instance_id) {
+            Some(addr) => PnpDevice {
+                battery_percent: dev.battery_percent.or_else(|| battery_by_address.get(&addr).copied()),
+                vendor_id: dev.vendor_id.or_else(|| vendor_by_address.get(&addr).copied()),
+                is_connected: match connected_by_address.get(&addr) {
+                    Some(true) => Some(true),
+                    _ => dev.is_connected,
+                },
+                ..dev
+            },
+            None => dev,
+        };
+        out.insert(enriched.instance_id.clone(), enriched);
+    }
+
+    out.into_values().collect()
 }
 
 #[cfg(test)]
@@ -264,7 +382,76 @@ mod tests {
             friendly_name: None,
             is_connected: None,
             battery_percent: None,
+            vendor_id: None,
         }
+    }
+
+    // Instance ids below were captured from a real Bose QuietComfort
+    // (user-renamed to "Aurora") connected to the development machine.
+
+    #[test]
+    fn extracts_address_from_every_node_shape() {
+        assert_eq!(
+            device_address("BTHENUM\\DEV_E458BCF9F02E\\7&78167D1&0&BLUETOOTHDEVICE_E458BCF9F02E")
+                .as_deref(),
+            Some("E458BCF9F02E")
+        );
+        // The HFP child node — the one that actually carries the battery.
+        assert_eq!(
+            device_address(
+                "BTHENUM\\{0000111E-0000-1000-8000-00805F9B34FB}_VID&0001009E_PID&4075\\7&78167D1&0&E458BCF9F02E_C00000000"
+            )
+            .as_deref(),
+            Some("E458BCF9F02E")
+        );
+        assert_eq!(
+            device_address("BTHLE\\DEV_79C657FDB4BC\\7&1E36B139&0&79C657FDB4BC").as_deref(),
+            Some("79C657FDB4BC")
+        );
+    }
+
+    /// Service UUIDs contain 12-hex runs of their own, and they appear before
+    /// the address. The SIG base UUID ends `-00805F9B34FB`; taking the first
+    /// run rather than the last returns that instead of the device.
+    #[test]
+    fn sig_base_uuid_is_not_mistaken_for_an_address() {
+        let id = "BTHENUM\\{0000110B-0000-1000-8000-00805F9B34FB}_VID&0001009E_PID&4075\\7&78167D1&0&E458BCF9F02E_C00000000";
+        assert_eq!(device_address(id).as_deref(), Some("E458BCF9F02E"));
+    }
+
+    /// The vendor RFCOMM service observed on the test headphones ends
+    /// `-C4714A518BCC`, which is also a 12-hex run.
+    #[test]
+    fn vendor_uuid_is_not_mistaken_for_an_address() {
+        let id = "BTHENUM\\{9B26D8C0-A8ED-440B-95B0-C4714A518BCC}_VID&0001009E_PID&4075\\7&78167D1&0&E458BCF9F02E_C00000000";
+        assert_eq!(device_address(id).as_deref(), Some("E458BCF9F02E"));
+    }
+
+    /// On BLE service nodes the address sits mid-string, not in the final
+    /// path segment, so segment-based extraction would miss it.
+    #[test]
+    fn extracts_address_from_mid_string_ble_service_node() {
+        let id = "BTHLEDEVICE\\{0000180F-0000-1000-8000-00805F9B34FB}_DEV_VID&0017EF_PID&6134_REV&0026_79C657FDB4BC\\8&30736FC1&0&0020";
+        assert_eq!(device_address(id).as_deref(), Some("79C657FDB4BC"));
+    }
+
+    #[test]
+    fn parses_bluetooth_sig_vendor_id() {
+        // 0x009E is Bose Corporation in the Bluetooth SIG company list.
+        assert_eq!(
+            vendor_id(
+                "BTHENUM\\{0000110B-0000-1000-8000-00805F9B34FB}_VID&0001009E_PID&4075\\7&78167D1&0&E458BCF9F02E_C00000000"
+            ),
+            Some(0x009E)
+        );
+    }
+
+    /// A USB-IF vendor id lives in a different namespace and must not be
+    /// compared against SIG company identifiers.
+    #[test]
+    fn usb_namespace_vendor_ids_are_ignored() {
+        assert_eq!(vendor_id("BTHLEDEVICE\\{0000180F-...}_DEV_VID&0002009E_PID&6134"), None);
+        assert_eq!(vendor_id("BTHENUM\\DEV_E458BCF9F02E\\7&78167D1&0"), None);
     }
 
     #[test]

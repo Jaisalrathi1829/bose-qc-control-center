@@ -1,7 +1,60 @@
 # Protocol Notes
 
-**Status: no vendor protocol has been investigated, because no Bose device has
-been available.**
+**Status: first hardware observation complete. No vendor protocol has been
+spoken to — the observations below are read-only and nothing was sent to the
+device.**
+
+## Observed device — 2026-08-08
+
+A real Bose QuietComfort, renamed by its owner to **"Aurora"**, connected to
+the development machine over Bluetooth Classic.
+
+| Property | Observed value |
+| --- | --- |
+| SIG company id | `0x009E` (Bose Corporation), on every profile child node |
+| Product id | `0x4075` |
+| Transport | Bluetooth Classic only — **no `BTHLE` node exists** |
+| Battery | **30%**, via the Windows PnP battery property |
+| Audio endpoints | `Headphones (Aurora)` (A2DP), `Headset (Aurora Hands-Free)` (HFP) |
+
+### Services Windows enumerated
+
+| UUID | Service |
+| --- | --- |
+| `0000110B` | A2DP Audio Sink |
+| `0000110C` | AVRCP Target |
+| `0000110E` | AVRCP Controller |
+| `0000111E` | Handsfree (HFP) |
+| `{9B26D8C0-A8ED-440B-95B0-C4714A518BCC}` | **Vendor-specific RFCOMM** (`SRfcomm`) |
+| `{00000000-DECA-FADE-DECA-DEAFDECACAFF}` | Windows placeholder for a service it has no driver for |
+
+### What this establishes, and what it does not
+
+**Establishes:**
+
+* The device is identifiable by vendor id rather than name. This matters — the
+  unit is renamed "Aurora" and matches none of the Bose name hints, so
+  name-based detection found nothing at all. Vendor id detection found it
+  immediately.
+* Battery is readable, but **only from the HFP child node**. The top-level
+  `BTHENUM\DEV_...` node reports no battery. Code that reads only top-level
+  nodes — as this project's did until this session — misses it entirely.
+* A vendor-specific RFCOMM service exists and is almost certainly the control
+  channel Bose Music uses.
+
+**Does not establish:** anything about what that RFCOMM channel accepts. No
+frame format, no opcode, no command has been observed, because nothing was
+sent. Noise control and EQ remain `UNKNOWN`, not `SUPPORTED` — the presence of
+a channel is not evidence of what travels over it.
+
+### Why the vendor channel has not been opened
+
+The agreed posture for this project is read-only and passive. Opening the
+RFCOMM channel is a write in practice: it claims the channel, and can prevent
+Bose Music from connecting while held. Doing so needs an explicit decision,
+which has not been taken.
+
+## Nothing below here is a finding
 
 This document records what was reasoned about, so the eventual hardware session
 does not start from scratch — and so nobody mistakes reasoning for findings.

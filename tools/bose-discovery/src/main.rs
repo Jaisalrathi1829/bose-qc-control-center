@@ -121,7 +121,7 @@ fn collect(redact: bool) -> Report {
             .and_then(|a| services_by_address.get(a).cloned())
             .unwrap_or_default();
 
-        let is_bose = looks_like_bose(&name);
+        let is_bose = is_bose_device(dev.vendor_id, &name);
         devices.push(DeviceRecord {
             id: report::stable_id(&salt, &dev.instance_id),
             name: if redact {
@@ -137,6 +137,7 @@ fn collect(redact: bool) -> Report {
             connected: dev.is_connected,
             battery_percent: dev.battery_percent,
             looks_like_bose: is_bose,
+            vendor_id: dev.vendor_id,
             gatt_services: services,
         });
     }
@@ -157,12 +158,22 @@ fn extract_address(instance_id: &str) -> Option<String> {
     }
 }
 
+/// Bose Corporation's Bluetooth SIG company identifier.
 /// Kept in sync with `app/src-tauri/src/bose/mod.rs`.
+const BOSE_SIG_COMPANY_ID: u16 = 0x009E;
+
+/// Weak name hint. Fails for renamed devices — kept only as a fallback for
+/// devices whose profile nodes expose no vendor id.
 fn looks_like_bose(name: &str) -> bool {
     let lowered = name.to_lowercase();
     ["bose", "quietcomfort", "quiet comfort", "qc45", "qc35", "qc ultra"]
         .iter()
         .any(|hint| lowered.contains(hint))
+}
+
+/// Vendor id first; the friendly name is user-editable and unreliable.
+fn is_bose_device(vendor_id: Option<u16>, name: &str) -> bool {
+    vendor_id == Some(BOSE_SIG_COMPANY_ID) || (vendor_id.is_none() && looks_like_bose(name))
 }
 
 #[cfg(windows)]

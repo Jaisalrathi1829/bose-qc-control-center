@@ -28,13 +28,35 @@ pub const BOSE_NAME_HINTS: &[&str] = &[
     "qc ultra",
 ];
 
+/// Bose Corporation's Bluetooth SIG company identifier.
+///
+/// Observed on a real device: every profile child node of the test headphones
+/// carries `VID&0001009E`, where `0001` is the SIG namespace and `009E` is the
+/// company id. This is authoritative in a way the friendly name is not.
+pub const BOSE_SIG_COMPANY_ID: u16 = 0x009E;
+
 /// Whether a Windows friendly name plausibly belongs to a Bose device.
 ///
-/// This is a *hint*, not an identification. A positive match means "worth
-/// interrogating", never "this is the user's QC".
+/// This is a weak *hint*, not an identification, and it fails completely for
+/// renamed devices — the development test unit is named "Aurora" and matches
+/// none of the hints. Prefer [`is_bose_vendor`]; use this only as a fallback
+/// when no vendor id is available.
 pub fn looks_like_bose(friendly_name: &str) -> bool {
     let lowered = friendly_name.to_lowercase();
     BOSE_NAME_HINTS.iter().any(|hint| lowered.contains(hint))
+}
+
+/// Whether a SIG company identifier belongs to Bose.
+pub fn is_bose_vendor(vendor_id: Option<u16>) -> bool {
+    vendor_id == Some(BOSE_SIG_COMPANY_ID)
+}
+
+/// Whether a device is a Bose device, preferring the vendor id.
+///
+/// The vendor id is definitive when Windows exposes one. The name hint is a
+/// fallback for devices whose profile nodes carry no `VID&` field.
+pub fn is_bose_device(vendor_id: Option<u16>, friendly_name: &str) -> bool {
+    is_bose_vendor(vendor_id) || (vendor_id.is_none() && looks_like_bose(friendly_name))
 }
 
 #[cfg(test)]
@@ -62,5 +84,27 @@ mod tests {
     #[test]
     fn ultra_alone_is_not_a_bose_hint() {
         assert!(!looks_like_bose("Galaxy S24 Ultra"));
+    }
+
+    /// The case that motivated vendor-id detection: a real Bose QuietComfort
+    /// renamed to "Aurora". Name matching cannot find it; the vendor id can.
+    #[test]
+    fn renamed_bose_device_is_identified_by_vendor_id() {
+        assert!(!looks_like_bose("Aurora"));
+        assert!(is_bose_device(Some(0x009E), "Aurora"));
+    }
+
+    #[test]
+    fn non_bose_vendor_is_not_matched() {
+        // 0x0075 is Samsung; the paired phone on the development machine.
+        assert!(!is_bose_device(Some(0x0075), "Jaisal's S24 Ultra"));
+        // A Bose-sounding name must not override a known non-Bose vendor id.
+        assert!(!is_bose_device(Some(0x0075), "Bose QuietComfort"));
+    }
+
+    #[test]
+    fn name_hint_is_used_only_when_no_vendor_id_exists() {
+        assert!(is_bose_device(None, "Bose QuietComfort Headphones"));
+        assert!(!is_bose_device(None, "Aurora"));
     }
 }

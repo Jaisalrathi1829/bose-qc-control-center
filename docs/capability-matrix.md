@@ -3,8 +3,9 @@
 The authoritative record of what this application can actually do.
 
 **Last updated:** 2026-08-08
-**Hardware status:** Bose QuietComfort headphones **not yet available**. No Bose
-device has ever been paired with the development machine.
+**Hardware status:** A real Bose QuietComfort (renamed "Aurora", SIG vendor
+`0x009E`, product `0x4075`) has been observed connected over Bluetooth Classic.
+Read-only observation only — nothing has been sent to the device.
 
 ## Status definitions
 
@@ -23,10 +24,10 @@ caveat, and `CapabilityStatus::is_actionable()` returns `false` for it.
 
 | Feature | Mechanism | Status | Hardware verified |
 | --- | --- | --- | --- |
-| Device detection | Windows PnP (CfgMgr32) | SUPPORTED | No |
-| Connection state | Windows PnP property | SUPPORTED | No |
-| Battery | Windows PnP battery property | UNKNOWN for Bose | No |
-| Device identity | Windows PnP | SUPPORTED | No |
+| Device detection | Windows PnP, SIG vendor id `0x009E` | **VERIFIED** | **Yes** |
+| Connection state | Windows PnP property | **VERIFIED** | **Yes** |
+| Battery | Windows PnP battery property (HFP child node) | **VERIFIED** | **Yes** — read 30% |
+| Device identity | Windows PnP | **VERIFIED** | **Yes** |
 | Windows volume | Core Audio | **VERIFIED** | **Yes** (see below) |
 | Playback / transport | Windows media session (not yet wired) | UNKNOWN | No |
 | Noise control (Quiet) | Bose vendor protocol | UNKNOWN | No |
@@ -67,21 +68,25 @@ Note also that Windows system volume for an endpoint is a different mechanism
 from any volume the headphones keep internally. The UI labels it as such and
 never presents the two as one control.
 
-### Battery — why "UNKNOWN for Bose" and not "SUPPORTED"
+### Battery — now verified, and the bug that hid it
 
-The read mechanism is verified working on this machine: the Windows PnP battery
-property returned `60` for a paired Legion mouse. But a mechanism working for
-one device says nothing about another. Windows populates that property from
-either the HFP battery indication or the BLE Battery Service, and whether a
-Bose QC reports through either is unknown until one is present.
+Confirmed on the physical device: **30%**, read from the Windows PnP battery
+property while the headphones were connected.
 
-The code reflects this precisely. In `bose/real.rs`, battery becomes `VERIFIED`
-only after an actual value has been read from the actual device
-(`battery_ever_read`), and stays `SUPPORTED` at best when the device is
-connected but silent. Two tests pin this behaviour:
+The value lives on the **HFP child node** (`Aurora Hands-Free AG`,
+service `0000111E`), not on the top-level `BTHENUM\DEV_...` node, which reports
+nothing. The original implementation read only top-level nodes and therefore
+reported "no battery reported" for a device that was in fact reporting it.
+`enumerate_bluetooth_devices()` now folds properties across every node sharing
+a device address.
 
-* `battery_capability_requires_an_actual_reading`
-* `battery_capability_is_verified_once_actually_read`
+### Device detection — why the name hint was not enough
+
+The test unit is renamed **"Aurora"** and matches none of the Bose name hints,
+so name-based detection found nothing. Every profile child node carries
+`VID&0001009E` — SIG company `0x009E`, Bose Corporation — which identifies it
+unambiguously. `is_bose_device()` prefers the vendor id and falls back to the
+name only when no vendor id is exposed.
 
 ### Vendor protocol features — why all `UNKNOWN`
 

@@ -84,11 +84,12 @@ impl RealBoseDevice {
             .filter(|d| d.is_top_level())
             .find(|d| match &self.preferred_instance_id {
                 Some(want) => &d.instance_id == want,
-                None => d
-                    .friendly_name
-                    .as_deref()
-                    .map(super::looks_like_bose)
-                    .unwrap_or(false),
+                // Vendor id first: the friendly name is user-editable and the
+                // test device is renamed, so name matching alone finds nothing.
+                None => super::is_bose_device(
+                    d.vendor_id,
+                    d.friendly_name.as_deref().unwrap_or_default(),
+                ),
             });
 
         let Some(dev) = matched else {

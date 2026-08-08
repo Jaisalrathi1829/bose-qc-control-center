@@ -21,6 +21,9 @@ pub struct DeviceRecord {
     pub connected: Option<bool>,
     pub battery_percent: Option<u8>,
     pub looks_like_bose: bool,
+    /// Bluetooth SIG company identifier. `0x009E` is Bose Corporation.
+    /// Far more reliable than the friendly name, which users rename.
+    pub vendor_id: Option<u16>,
     pub gatt_services: Vec<GattService>,
 }
 
@@ -218,6 +221,7 @@ mod tests {
                 connected: Some(true),
                 battery_percent: Some(72),
                 looks_like_bose: true,
+                vendor_id: Some(0x009E),
                 gatt_services: vec![GattService {
                     uuid: "0000180F-0000-1000-8000-00805F9B34FB".to_string(),
                     known_name: Some("Battery Service".to_string()),
