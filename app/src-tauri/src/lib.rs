@@ -5,14 +5,16 @@
 //! that are validated before any backend sees them. There is deliberately no
 //! command that accepts a UUID, a characteristic handle, or a byte array.
 
+pub mod audio;
 pub mod bluetooth;
 pub mod bose;
 pub mod device;
 pub mod util;
 
 use bose::{MockBoseDevice, RealBoseDevice};
+use device::capability::{CapabilityKey, HardwareProof, Mechanism};
 use device::command::{CommandOutcome, DeviceCommand};
-use device::state::{DeviceSnapshot, DeviceSource};
+use device::state::{DeviceSnapshot, DeviceSource, WindowsAudioState};
 use device::traits::BoseDevice;
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -76,10 +78,84 @@ type UiResult<T> = Result<T, UiError>;
 
 // --- Commands ---------------------------------------------------------------
 
+/// Attaches Windows audio state to a device snapshot.
+///
+/// Audio is a system concern rather than a device-backend one: the endpoint
+/// exists whether we are talking to a mock or to real headphones. Keeping it
+/// out of the backends means the mock cannot fabricate a Windows volume, which
+/// would be a particularly misleading thing to simulate.
+///
+/// Reading an endpoint successfully is genuine hardware evidence that the
+/// volume path works, so the capability is promoted accordingly.
+fn attach_windows_audio(mut snapshot: DeviceSnapshot) -> DeviceSnapshot {
+    #[cfg(windows)]
+    {
+        match audio::default_output_endpoint() {
+            Ok(Some(ep)) => {
+                let proof = HardwareProof::observed_passively(
+                    CapabilityKey::Volume,
+                    format!("read Windows volume from endpoint {:?}", ep.name),
+                );
+                let _ = snapshot
+                    .capabilities
+                    .get_mut(CapabilityKey::Volume)
+                    .verify_with_hardware(&proof, Mechanism::WindowsAudio);
+
+                snapshot.windows_audio = Some(WindowsAudioState {
+                    endpoint_name: ep.name,
+                    endpoint_id: util::stable_id(&ep.id),
+                    volume_percent: ep.volume_percent,
+                    muted: ep.muted,
+                    is_default_render: ep.is_default_render,
+                    is_default_communications: ep.is_default_communications,
+                    sample_rate_hz: ep.sample_rate_hz,
+                    channels: ep.channels,
+                });
+            }
+            Ok(None) => {
+                let _ = snapshot
+                    .capabilities
+                    .get_mut(CapabilityKey::Volume)
+                    .mark_supported(
+                        Mechanism::WindowsAudio,
+                        "Core Audio is available but no active output endpoint is present.",
+                    );
+            }
+            Err(e) => {
+                let _ = snapshot
+                    .capabilities
+                    .get_mut(CapabilityKey::Volume)
+                    .mark_unsupported(format!("Core Audio unavailable: {e}"));
+            }
+        }
+    }
+    snapshot
+}
+
+/// Resolves the endpoint id to act on. `None` means the default endpoint.
+///
+/// The UI only ever sees salted hashes, so it cannot name a raw endpoint id —
+/// which is deliberate. Volume commands therefore act on the default endpoint.
+fn target_endpoint() -> Option<&'static str> {
+    None
+}
+
 #[tauri::command]
 async fn get_snapshot(state: tauri::State<'_, AppState>) -> UiResult<DeviceSnapshot> {
     let dev = state.current();
-    Ok(dev.snapshot().await?)
+    Ok(attach_windows_audio(dev.snapshot().await?))
+}
+
+#[tauri::command]
+fn list_audio_endpoints() -> UiResult<Vec<audio::AudioEndpoint>> {
+    #[cfg(windows)]
+    {
+        Ok(audio::list_output_endpoints()?)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(Vec::new())
+    }
 }
 
 #[tauri::command]
@@ -94,7 +170,7 @@ async fn set_device_source(
 ) -> UiResult<DeviceSnapshot> {
     state.switch_to(source);
     let dev = state.current();
-    Ok(dev.snapshot().await?)
+    Ok(attach_windows_audio(dev.snapshot().await?))
 }
 
 /// The single entry point for every device operation.
@@ -129,14 +205,50 @@ async fn execute_command(
             "Continuous noise-control level requires a verified vendor protocol.",
         ),
 
-        // Windows audio and media transport are implemented in their own
-        // modules; not yet wired at this stage of the build.
-        DeviceCommand::SetSystemVolume { .. }
-        | DeviceCommand::SetSystemMute { .. }
-        | DeviceCommand::MediaPlayPause
+        // Windows system volume. Set, then re-read the endpoint and only
+        // report success if it actually reports the requested value.
+        DeviceCommand::SetSystemVolume { percent } => {
+            #[cfg(windows)]
+            {
+                let actual = audio::set_volume(target_endpoint(), percent)?;
+                if actual == percent {
+                    CommandOutcome::applied()
+                } else {
+                    CommandOutcome::sent_unverified(format!(
+                        "Endpoint reports {actual}% after requesting {percent}%."
+                    ))
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                CommandOutcome::unsupported("Core Audio is only available on Windows.")
+            }
+        }
+
+        DeviceCommand::SetSystemMute { muted } => {
+            #[cfg(windows)]
+            {
+                let actual = audio::set_mute(target_endpoint(), muted)?;
+                if actual == muted {
+                    CommandOutcome::applied()
+                } else {
+                    CommandOutcome::sent_unverified(
+                        "Endpoint did not report the requested mute state.",
+                    )
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                CommandOutcome::unsupported("Core Audio is only available on Windows.")
+            }
+        }
+
+        // Media transport goes through the Windows session model, which is a
+        // separate integration and not implemented yet.
+        DeviceCommand::MediaPlayPause
         | DeviceCommand::MediaNext
         | DeviceCommand::MediaPrevious => {
-            CommandOutcome::unsupported("Windows audio integration is not wired up yet.")
+            CommandOutcome::unsupported("Media transport control is not implemented yet.")
         }
     };
 
@@ -207,6 +319,7 @@ pub fn run() {
             execute_command,
             get_bluetooth_availability,
             list_bluetooth_devices,
+            list_audio_endpoints,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Bose QC Control Center");
