@@ -1,0 +1,28 @@
+[package]
+name = "bose-rfcomm-listen"
+version = "0.1.0"
+edition = "2021"
+description = "Listen-only RFCOMM capture for Bose QC Control Center. Sends zero bytes."
+
+[[bin]]
+name = "bose-rfcomm-listen"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+time = { version = "0.3", features = ["formatting", "macros"] }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Devices_Bluetooth",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Properties",
+    "Win32_Networking_WinSock",
+    "Win32_Foundation",
+    "Win32_System_Threading",
+]
+
+[profile.release]
+opt-level = "s"
