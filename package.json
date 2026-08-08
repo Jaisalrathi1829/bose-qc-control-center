@@ -1,0 +1,31 @@
+{
+  "name": "bose-qc-control-center",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A fully local Windows control center for Bose QuietComfort headphones. No cloud, no telemetry, no accounts.",
+  "type": "module",
+  "workspaces": [
+    "app/frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace app/frontend",
+    "build": "npm run build --workspace app/frontend",
+    "test": "npm run test --workspace app/frontend",
+    "test:run": "npm run test:run --workspace app/frontend",
+    "lint": "npm run lint --workspace app/frontend",
+    "typecheck": "npm run typecheck --workspace app/frontend",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "rust:test": "cargo test --manifest-path app/src-tauri/Cargo.toml",
+    "rust:fmt": "cargo fmt --manifest-path app/src-tauri/Cargo.toml",
+    "rust:clippy": "cargo clippy --manifest-path app/src-tauri/Cargo.toml -- -D warnings",
+    "discovery": "cargo run --manifest-path tools/bose-discovery/Cargo.toml --"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

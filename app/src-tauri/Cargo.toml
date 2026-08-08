@@ -1,0 +1,84 @@
+[package]
+name = "bose-qc-control-center"
+version = "0.1.0"
+description = "A fully local Windows control center for Bose QuietComfort headphones"
+authors = ["Bose QC Control Center contributors"]
+edition = "2021"
+rust-version = "1.77"
+default-run = "bose-qc-control-center"
+
+[lib]
+name = "bose_qc_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+tokio = { version = "1", features = ["sync", "time", "rt-multi-thread", "macros"] }
+thiserror = "2"
+anyhow = "1"
+async-trait = "0.1"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+rusqlite = { version = "0.32", features = ["bundled"] }
+time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
+sha2 = "0.10"
+parking_lot = "0.12"
+
+[target.'cfg(windows)'.dependencies]
+windows-core = "0.58"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    # Device enumeration and property access (PnP battery, connection state)
+    "Devices_Enumeration",
+    "Devices_Bluetooth",
+    "Devices_Bluetooth_GenericAttributeProfile",
+    "Devices_Bluetooth_Rfcomm",
+    "Devices_Radios",
+    "Networking_Sockets",
+    "Storage_Streams",
+    "Foundation",
+    "Foundation_Collections",
+
+    # Media transport controls (play/pause/next via the Windows session model)
+    "Media_Control",
+
+    # Core Audio (volume, mute, endpoint enumeration)
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Devices_Properties",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Foundation",
+    "Win32_UI_Shell_PropertiesSystem",
+]
+
+[features]
+# Compiles the app without any real-hardware backend. Useful for CI and for
+# verifying that the mock path is genuinely self-contained.
+mock-only = []
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

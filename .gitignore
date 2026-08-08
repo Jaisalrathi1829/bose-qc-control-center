@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+build/
+target/
+*.local
+
+# Tauri
+app/src-tauri/target/
+app/src-tauri/gen/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Diagnostic captures and device reports may contain Bluetooth
+# addresses and other device identifiers. Never commit them.
+captures/
+reports/
+device-report.json
+device-report.txt
+*.btcapture
+*.btcapture.jsonl
+
+# Local application data
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Logs
+*.log
+logs/
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test output
+coverage/
+.vitest/
