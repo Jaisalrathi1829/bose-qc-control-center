@@ -166,14 +166,16 @@ impl VendorChannel {
     /// Callers pass a constant from `frames.rs`. Winsock handles the RFCOMM
     /// framing, so these bytes become the RFCOMM payload directly — exactly
     /// what appeared as the payload in the capture.
-    pub fn send_frame(&self, bytes: &[u8]) -> Result<(), ChannelError> {
+    /// Returns how many bytes the stack accepted, so a partial or silently
+    /// dropped write is visible rather than assumed successful.
+    pub fn send_frame(&self, bytes: &[u8]) -> Result<usize, ChannelError> {
         unsafe {
             let n = send(self.socket, bytes, SEND_RECV_FLAGS(0));
             if n == SOCKET_ERROR {
                 return Err(ChannelError::Send(WSAGetLastError().0));
             }
+            Ok(n as usize)
         }
-        Ok(())
     }
 
     pub fn receive(&self) -> Result<RecvOutcome, ChannelError> {

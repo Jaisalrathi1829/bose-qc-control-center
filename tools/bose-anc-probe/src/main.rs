@@ -242,24 +242,33 @@ fn handshake(ch: &VendorChannel) {
         (&frames::PROTOCOL_VERSION_REQUEST[..], "protocol version"),
         (&frames::NOISE_GROUP_ENUMERATE[..], "enumerate noise group"),
     ] {
-        println!("  TX  {}   ({label})", to_hex(frame));
-        if ch.send_frame(frame).is_err() {
-            println!("  [send failed]");
-            return;
+        match ch.send_frame(frame) {
+            Ok(n) => println!("  TX  {}   ({label}) [{n}/{} bytes accepted]", to_hex(frame), frame.len()),
+            Err(e) => {
+                println!("  [send failed: {e}]");
+                return;
+            }
         }
-        drain(ch, Duration::from_millis(900), "  RX  ");
+        drain(ch, Duration::from_millis(1500), "  RX  ");
     }
 }
 
 /// Sends the read frame and returns the mode the device reports.
 #[cfg(windows)]
 fn query_mode(ch: &VendorChannel, label: &str) -> Option<u8> {
-    println!("  TX  {}   (read current mode) [{label}]", to_hex(&READ_CURRENT_MODE));
-    if ch.send_frame(&READ_CURRENT_MODE).is_err() {
-        return None;
+    match ch.send_frame(&READ_CURRENT_MODE) {
+        Ok(n) => println!(
+            "  TX  {}   (read current mode) [{label}] [{n}/{} bytes accepted]",
+            to_hex(&READ_CURRENT_MODE),
+            READ_CURRENT_MODE.len()
+        ),
+        Err(e) => {
+            println!("  [send failed: {e}]");
+            return None;
+        }
     }
 
-    let deadline = Instant::now() + Duration::from_millis(1500);
+    let deadline = Instant::now() + Duration::from_millis(3000);
     let mut found = None;
     while Instant::now() < deadline {
         match ch.receive() {
