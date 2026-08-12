@@ -263,6 +263,78 @@ the resulting reports still contain all of the above for that device.
 `.gitignore` excludes `btsnoop-rfcomm.*`, `btsnoop_hci*` and `*.cfa`. Capture
 files and parser output must never be committed.
 
+## Experiment 4 — transmitting the observed frames
+
+**2026-08-12. First transmitting experiment, authorised by the user.**
+
+Replayed Bose Music's exact opening frames, then its exact mode-change frame,
+against the same vendor RFCOMM service.
+
+| Step | Frame | Result |
+| --- | --- | --- |
+| Protocol version | `00 01 01` | 3/3 bytes accepted, **no reply** |
+| Enumerate noise group | `1F 01 05` | 3/3 bytes accepted, **no reply** |
+| Read current mode | `1F 03 01 00` | 4/4 bytes accepted, **no reply** |
+| Set mode to Quiet | `1F 03 05 02 00` | 5/5 bytes accepted, **no reply** |
+
+**The headphones did not change mode.** Confirmed by the user physically
+observing the device, which is the only signal that mattered here.
+
+### Variations tried, all identical
+
+| Variation | Result |
+| --- | --- |
+| Channel resolved from the vendor UUID via SDP | Connects, silent |
+| Direct RFCOMM server channel 8 (DLCI 16 >> 1) | Connects, silent |
+| `SO_BTH_AUTHENTICATE` + `SO_BTH_ENCRYPT` | Connects, silent |
+| Listen window extended to ~6s | Silent |
+
+### What is ruled out
+
+* **Wrong endpoint.** The capture shows the phone sending SABM on DLCI 16 and
+  the headphones answering UA, so the headphones are the RFCOMM server on
+  channel 8 — which is what we connect to, both by UUID and by number.
+* **Dropped writes.** Winsock accepted every byte of every frame.
+* **Too short a wait.** Six seconds of silence.
+* **Channel dropping.** It stays open throughout; no close is reported.
+* **Malformed frames.** They are byte-for-byte replays of frames the device
+  demonstrably acted on when Bose Music sent them.
+
+### What this establishes
+
+A connection to the vendor RFCOMM service can be *established* from Windows,
+but the device does not process application data sent over it — it neither
+replies nor acts. Something about the session differs from Bose Music's in a
+way that is not visible at the RFCOMM layer.
+
+Remaining untested hypotheses, in order of plausibility:
+
+1. **The device serves one vendor session at a time and the phone holds it.**
+   The capture showed the headphones connected to both the phone and this PC.
+   Not yet tested with the phone fully disconnected.
+2. **RFCOMM credit-based flow control.** The capture's PN negotiation on
+   DLCI 0 used the credit-based convergence layer. If the device is granted
+   zero send credits it cannot reply, which would look exactly like this and
+   is invisible above the RFCOMM layer.
+3. **Application-level authorisation** performed by Bose Music before the
+   frames we replayed.
+
+The decisive next step is a snoop capture of Bose Music connecting **from
+cold** — Bluetooth off, logging on, Bluetooth on, app opened. The existing
+capture starts mid-session and therefore does not contain the DLCI 0
+parameter negotiation for DLCI 16.
+
+### Capability status
+
+Unchanged. Noise control and Aware mode remain **SUPPORTED**, not `VERIFIED`
+— the interface is documented and real, but this project still cannot make
+the device do anything.
+
+They are deliberately not marked `UNSUPPORTED` either. That status is terminal
+and means the feature cannot be reached through available interfaces, and the
+cold-connect capture has not been tried. Absence of a working path today is
+not proof that none exists.
+
 ## Nothing below here is a finding
 
 This document records what was reasoned about, so the eventual hardware session
