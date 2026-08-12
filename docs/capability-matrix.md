@@ -30,12 +30,12 @@ caveat, and `CapabilityStatus::is_actionable()` returns `false` for it.
 | Device identity | Windows PnP | **VERIFIED** | **Yes** |
 | Windows volume | Core Audio | **VERIFIED** | **Yes** (see below) |
 | Playback / transport | Windows media session (not yet wired) | UNKNOWN | No |
-| Noise control (Quiet) | Bose vendor protocol | UNKNOWN | No |
-| Aware mode | Bose vendor protocol | UNKNOWN | No |
-| Custom noise control | Bose vendor protocol | UNKNOWN | No |
+| Noise control (Quiet) | Vendor RFCOMM, DLCI 16, group `0x1F` | SUPPORTED | No |
+| Aware mode | Vendor RFCOMM, group `0x1F`, mode `0x01` | SUPPORTED | No |
+| Custom noise control | Vendor RFCOMM, group `0x1F` | UNKNOWN | No |
 | Equalizer | Bose vendor protocol | UNKNOWN | No |
-| Multipoint | Bose vendor protocol | UNKNOWN | No |
-| Firmware version | Bose vendor protocol | UNKNOWN | No |
+| Multipoint | Vendor RFCOMM, group `0x04` | UNKNOWN | No |
+| Firmware version | Vendor RFCOMM, group `0x00` | SUPPORTED | No |
 | Auto-off | Bose vendor protocol | UNKNOWN | No |
 | Voice prompts | Bose vendor protocol | UNKNOWN | No |
 | Sidetone | Bose vendor protocol | UNKNOWN | No |
@@ -88,7 +88,39 @@ so name-based detection found nothing. Every profile child node carries
 unambiguously. `is_bose_device()` prefers the vendor id and falls back to the
 name only when no vendor id is exposed.
 
-### Vendor protocol features — why all `UNKNOWN`
+### Noise control — why `SUPPORTED` and not `VERIFIED`
+
+Experiment 3 recovered the actual exchange Bose Music uses, from a phone-side
+HCI snoop log. The interface is now specific rather than hypothetical: vendor
+RFCOMM DLCI 16, function group `0x1F`, `1F 03 05 02 XX` to set the mode, with
+`XX` = `0x00` Quiet, `0x01` Aware, `0x02` Home. Six mode changes were observed
+with the device naming the resulting mode in ASCII each time.
+
+That is a real interface, so `UNKNOWN` would understate it. But `VERIFIED` in
+this project means *our own* command produced an observed state change on the
+physical device, and this project has still transmitted zero bytes. The
+capture is evidence about the protocol, not about our implementation — which
+does not exist yet.
+
+`SUPPORTED` is exactly the state this evidence supports: the interface appears
+to expose the feature, and it has not been confirmed from our code.
+
+### Custom noise control and multipoint — still `UNKNOWN`
+
+Mode `0x02` is named "Home" and mode `0x03` has an empty name, which hints at
+user-definable slots, but nothing in the capture shows one being created or
+edited. Group `0x04` carries paired-device addresses and names, which is
+suggestive for multipoint, but it has not been decoded. Neither is promoted on
+a hint.
+
+### Equalizer — still `UNKNOWN`
+
+No equalizer traffic appears in the capture; the slider was evidently not
+moved during it. Absence of evidence is not evidence of absence, so this stays
+`UNKNOWN` rather than becoming `UNSUPPORTED`. A capture that exercises the EQ
+would likely resolve it.
+
+### Vendor protocol features — the original reasoning
 
 Bose headphones expose device control through a vendor-specific protocol rather
 than a standard Bluetooth profile. Standard interfaces were considered first,

@@ -29,8 +29,12 @@ device-report.txt
 rfcomm-capture.json
 rfcomm-capture.jsonl
 rfcomm-capture.txt
+btsnoop-rfcomm.jsonl
+btsnoop-rfcomm.txt
+btsnoop_hci*
 *.btcapture
 *.btcapture.jsonl
+*.cfa
 
 # Local application data
 *.sqlite

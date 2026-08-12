@@ -139,6 +139,130 @@ is a write to physical hardware and a separate decision, which has not been
 taken. No frame format is known, and none will be guessed — see the stop
 condition at the end of this document.
 
+## Experiment 3 — Bose Music traffic, recovered from an Android HCI snoop log
+
+**2026-08-12T14:27Z. Offline analysis of a phone-side capture. Nothing was
+transmitted by this project.**
+
+The phone's Bluetooth HCI snoop log was captured while Bose Music performed
+noise-mode changes, then parsed offline. 19840 HCI records yielded 705 RFCOMM
+frames for the headphones, 451 of them carrying payload.
+
+### RFCOMM channel map
+
+| DLCI | Frames | Contents |
+| --- | --- | --- |
+| 0 | 18 | RFCOMM control (PN/MSC negotiation) |
+| 16 | **369** | **Bose vendor protocol** |
+| 24 | 56 | Hands-Free Profile — plain AT commands (`AT+BRSF`, `AT+BAC`, `AT+CIND`) |
+| 39 | 8 | Unidentified |
+
+DLCI 16 is the channel of interest. It carries a structured binary protocol,
+not AT commands.
+
+### Frame structure
+
+Every frame observed on DLCI 16 fits:
+
+```text
+byte 0   function group
+byte 1   function within the group
+byte 2   operator
+byte 3   payload length
+byte 4+  payload
+```
+
+Multiple frames are frequently concatenated into a single RFCOMM payload.
+
+Operators observed, with the roles their usage is consistent with:
+
+| Value | Apparent role |
+| --- | --- |
+| `0x01` | request / get |
+| `0x03` | response / status |
+| `0x05` | set |
+| `0x06` | notify |
+| `0x07` | result or end-of-list |
+
+### Function groups observed
+
+| Group | Contents seen |
+| --- | --- |
+| `0x00` | Device info — firmware `1.0.6-80+f5f219b`, serial, BD address |
+| `0x01` | Device settings — product name "Aurora" |
+| `0x02` | Status block, includes `28 FF FF 00` (unidentified) |
+| `0x04` | Paired/connected device management — addresses and names |
+| `0x05` | Media metadata — track title, album |
+| `0x1F` | **Noise control** |
+| `0x07` `0x09` `0x12` | Small, unidentified |
+
+### Group `0x1F` — noise control
+
+`1F 06` enumerates the available modes. Each entry is a fixed 0x2F-byte block
+whose payload contains the mode name in plain ASCII:
+
+| Index | Name |
+| --- | --- |
+| `0x00` | `Quiet` |
+| `0x01` | `Aware` |
+| `0x02` | `Home` |
+| `0x03` | *(empty name)* |
+
+`1F 03` carries the current mode. The full exchange for a mode change, seen
+identically six times:
+
+```text
+PHONE  -> DEVICE   1F 03 05 02 XX      set current mode to XX
+DEVICE -> PHONE    1F 03 07 00         result
+DEVICE -> PHONE    1F 04 03 01 XX      notify
+DEVICE -> PHONE    1F 03 06 01 XX      notify current mode = XX
+```
+
+### Correlation
+
+Six mode changes were captured, and in every case the mode-definition block
+the device subsequently returned matched the value byte:
+
+| Time | Frame | Value | Block returned |
+| --- | --- | --- | --- |
+| 14:28:09.551 | `1F 03 05 02 00` | `0x00` | `Quiet` |
+| 14:28:14.630 | `1F 03 05 02 01` | `0x01` | `Aware` |
+| 14:28:19.504 | `1F 03 05 02 00` | `0x00` | `Quiet` |
+| 14:28:24.152 | `1F 03 05 02 01` | `0x01` | `Aware` |
+| 14:29:13.708 | `1F 03 05 02 02` | `0x02` | `Home` |
+| 14:29:15.808 | `1F 03 05 02 01` | `0x01` | `Aware` |
+
+Six repetitions, one varying byte, and the device naming the resulting mode in
+ASCII. The alternating Quiet/Aware pattern at roughly five-second intervals
+matches the sequence the operator reported performing.
+
+### What this justifies, and what it does not
+
+**Justifies** moving noise control, Aware mode and firmware version from
+`UNKNOWN` to `SUPPORTED`: a specific interface has been identified, with the
+frame layout, the opcode and the parameter values all observed rather than
+guessed.
+
+**Does not justify `VERIFIED`.** Verification in this project means *our* code
+caused an observed state change on the physical device. This project has still
+transmitted exactly zero bytes. Everything here was performed by Bose Music
+and watched afterwards from a log.
+
+**No evidence for EQ.** No equalizer traffic appears in this capture — the
+slider was evidently not moved. Equalizer stays `UNKNOWN`. Group `0x04`
+(paired device management) is suggestive for multipoint but has not been
+decoded, so multipoint also stays `UNKNOWN`.
+
+### Privacy note
+
+A snoop log is highly personal. This one contained the headphones' serial
+number, Bluetooth addresses, the names of paired devices, and **the title of
+the media playing at the time**. The parser filters to a single device, but
+the resulting reports still contain all of the above for that device.
+
+`.gitignore` excludes `btsnoop-rfcomm.*`, `btsnoop_hci*` and `*.cfa`. Capture
+files and parser output must never be committed.
+
 ## Nothing below here is a finding
 
 This document records what was reasoned about, so the eventual hardware session
