@@ -151,28 +151,42 @@ fn run() {
     handshake(&ch);
 
     // --- read the mode before doing anything ---
+    //
+    // `--force` sends the change even when the device never reported a mode.
+    // The frame still goes out; what is lost is the ability to say whether it
+    // did anything, so the result is reported as UNVERIFIABLE rather than as
+    // success. Sending blind and calling it success is the one outcome this
+    // tool will not produce.
+    let force = args.iter().any(|a| a == "--force");
+
     let before = match query_mode(&ch, "BEFORE") {
-        Some(m) => m,
+        Some(m) => Some(m),
+        None if force => {
+            println!("\n  Device did not report a mode. --force given, sending anyway.");
+            println!("  The result will NOT be verifiable.\n");
+            None
+        }
         None => {
             eprintln!("\nThe device did not report a current mode. Stopping without");
             eprintln!("sending a change — there would be no way to verify the result.");
+            eprintln!("Pass --force to send it regardless (result will be unverifiable).");
             std::process::exit(3);
         }
     };
-    println!(
-        "\n  Current mode: 0x{:02X} ({})\n",
-        before,
-        NoiseMode::from_index(before)
-            .map(|m| m.name())
-            .unwrap_or("unnamed")
-    );
+    if let Some(b) = before {
+        println!(
+            "\n  Current mode: 0x{:02X} ({})\n",
+            b,
+            NoiseMode::from_index(b).map(|m| m.name()).unwrap_or("unnamed")
+        );
+    }
 
     let Some(target) = requested else {
         println!("Read-only run complete. Nothing was changed.");
         return;
     };
 
-    if before == target.index() {
+    if before == Some(target.index()) {
         println!(
             "Already in {}. Nothing to do — not sending a redundant change.",
             target.name()
@@ -182,20 +196,33 @@ fn run() {
 
     // --- send the change ---
     let frame = frames::set_mode(target);
-    println!("  TX  {}   (set mode to {})", to_hex(&frame), target.name());
-    if let Err(e) = ch.send_frame(&frame) {
-        eprintln!("\n{e}");
-        std::process::exit(4);
+    match ch.send_frame(&frame) {
+        Ok(n) => println!(
+            "  TX  {}   (set mode to {}) [{n}/{} bytes accepted]",
+            to_hex(&frame),
+            target.name(),
+            frame.len()
+        ),
+        Err(e) => {
+            eprintln!("\n{e}");
+            std::process::exit(4);
+        }
     }
-    drain(&ch, Duration::from_millis(1200), "  RX  ");
+    drain(&ch, Duration::from_millis(2500), "  RX  ");
 
     // --- read back and verify ---
     println!();
     let after = match query_mode(&ch, "AFTER") {
         Some(m) => m,
         None => {
-            println!("\nRESULT: command sent, but the device did not report a mode");
-            println!("        afterwards. State could not be verified.");
+            println!("\nRESULT: UNVERIFIABLE");
+            println!("        The frame was transmitted and the stack accepted every byte.");
+            println!("        The device reported nothing back, so this tool cannot tell");
+            println!("        you whether anything changed.");
+            println!();
+            println!("        Look at your headphones. If the mode changed, the frame is");
+            println!("        correct and only the device's replies are missing. If it did");
+            println!("        not, the channel is not accepting commands from us at all.");
             std::process::exit(5);
         }
     };
@@ -210,13 +237,8 @@ fn run() {
 
     // The verification rule used throughout this project: the state must have
     // changed, and it must have changed to what was asked for.
-    if after == before {
-        println!("RESULT: NOT VERIFIED — the device reports the same mode as before.");
-        println!("        The command was transmitted but had no observable effect.");
-        std::process::exit(6);
-    }
     if after != target.index() {
-        println!("RESULT: NOT VERIFIED — the mode changed, but not to what was requested.");
+        println!("RESULT: NOT VERIFIED — the device reports a mode we did not ask for.");
         println!(
             "        Asked for 0x{:02X}, device reports 0x{:02X}.",
             target.index(),
@@ -225,14 +247,33 @@ fn run() {
         std::process::exit(7);
     }
 
-    println!("RESULT: VERIFIED");
-    println!(
-        "        Device-reported mode changed 0x{:02X} -> 0x{:02X}, matching the request.",
-        before, after
-    );
-    println!("        {} -> {}",
-        NoiseMode::from_index(before).map(|m| m.name()).unwrap_or("unnamed"),
-        target.name());
+    match before {
+        Some(b) if b == after => {
+            println!("RESULT: NOT VERIFIED — the device reports the same mode as before.");
+            println!("        The command was transmitted but had no observable effect.");
+            std::process::exit(6);
+        }
+        Some(b) => {
+            println!("RESULT: VERIFIED");
+            println!(
+                "        Device-reported mode changed 0x{b:02X} -> 0x{after:02X}, matching the request."
+            );
+            println!(
+                "        {} -> {}",
+                NoiseMode::from_index(b).map(|m| m.name()).unwrap_or("unnamed"),
+                target.name()
+            );
+        }
+        None => {
+            // --force path: the device answered afterwards but not before, so
+            // there is no baseline to compare against. It matches the request,
+            // which is suggestive, but "changed" cannot be claimed.
+            println!("RESULT: PARTIAL — device now reports the requested mode,");
+            println!("        but it reported nothing beforehand, so there is no baseline");
+            println!("        and no proof this command caused the change.");
+            std::process::exit(8);
+        }
+    }
 }
 
 /// Replays the session-opening frames Bose Music sends. Read-only.
