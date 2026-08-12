@@ -91,10 +91,6 @@ impl VendorChannel {
         }
     }
 
-    pub fn open(device_address: u64, service: GUID) -> Result<Self, ChannelError> {
-        Self::open_inner(device_address, service, 0, false)
-    }
-
     fn open_inner(device_address: u64, service: GUID, port: u32, secure: bool) -> Result<Self, ChannelError> {
         unsafe {
             let mut wsadata = WSADATA::default();

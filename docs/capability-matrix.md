@@ -2,10 +2,13 @@
 
 The authoritative record of what this application can actually do.
 
-**Last updated:** 2026-08-08
+**Last updated:** 2026-08-12
 **Hardware status:** A real Bose QuietComfort (renamed "Aurora", SIG vendor
 `0x009E`, product `0x4075`) has been observed connected over Bluetooth Classic.
-Read-only observation only — nothing has been sent to the device.
+Battery, device identity and Windows volume are verified. Vendor-protocol
+frames (noise control) have been transmitted — see Experiment 4 in
+[protocol-notes.md](protocol-notes.md) — but produced no observable device
+change, so those capabilities remain `SUPPORTED`, not `VERIFIED`.
 
 ## Status definitions
 
